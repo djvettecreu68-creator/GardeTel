@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Garde Tél</title>
+<style>
+  :root { --bg:#0F1115; --card:#1A1D24; --txt:#fff; --mute:#9CA3AF;
+          --green:#22C55E; --red:#EF4444; --amber:#F59E0B; --blue:#3B82F6; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { margin:0; background:var(--bg); color:var(--txt);
+              font-family:system-ui,-apple-system,Roboto,sans-serif; }
+  main { max-width:520px; margin:0 auto; padding:32px 22px 28px;
+         display:flex; flex-direction:column; gap:18px; }
+  h1 { margin:0; text-align:center; font-size:28px; }
+  .sub { text-align:center; color:var(--mute); font-size:14px; margin-top:-10px; }
+  #card { border-radius:20px; padding:30px 18px; text-align:center;
+          background:var(--card); border:2px solid transparent; transition:.25s; }
+  #state { font-size:32px; font-weight:800; }
+  #stateSub { color:var(--mute); margin-top:8px; font-size:15px; }
+  #card.PAUSED { background:#0F1E3A; border-color:var(--blue); }
+  #card.ARMING { background:#3A2E0F; border-color:var(--amber); }
+  #card.ACTIVE { background:#0F2A1A; border-color:var(--green); }
+  #card.ALARM  { background:#3A1010; border-color:var(--red); animation:pulse 1s infinite; }
+  @keyframes pulse { 50% { box-shadow:0 0 0 10px rgba(239,68,68,.25); } }
+  button { width:100%; border:0; border-radius:14px; padding:16px; font-size:16px;
+           font-weight:700; color:#fff; background:var(--card); }
+  button:active { transform:scale(.98); }
+  #toggle { font-size:21px; padding:20px; background:var(--green); }
+  #toggle.on { background:var(--red); }
+  #silence { font-size:21px; padding:20px; background:var(--amber); color:#111; }
+  .row { display:flex; justify-content:space-between; font-size:15px; }
+  input[type=range] { width:100%; accent-color:var(--green); }
+  .auto { display:flex; align-items:center; gap:14px; background:var(--card);
+          border-radius:14px; padding:14px 16px; }
+  .auto div { flex:1; }
+  .auto b { font-size:16px; }
+  .auto small { display:block; color:var(--mute); font-size:13px; margin-top:3px; line-height:1.35; }
+  .sw { position:relative; width:52px; height:30px; flex:none; }
+  .sw input { opacity:0; width:0; height:0; }
+  .sw span { position:absolute; inset:0; border-radius:30px; background:#374151; transition:.2s; }
+  .sw span::before { content:""; position:absolute; width:24px; height:24px; left:3px; top:3px;
+                     border-radius:50%; background:#fff; transition:.2s; }
+  .sw input:checked + span { background:var(--blue); }
+  .sw input:checked + span::before { transform:translateX(22px); }
+  .hint { color:var(--mute); font-size:13px; line-height:1.45; text-align:center; }
+</style>
+</head>
+<body>
+<main>
+  <h1>🛡️ Garde Tél</h1>
+  <div class="sub">Alerte dans ton casque si quelqu'un prend le téléphone</div>
+
+  <div id="card"><div id="state">⚪ INACTIVE</div><div id="stateSub">Le téléphone n'est pas surveillé</div></div>
+
+  <button id="silence" hidden>🔕 COUPER L'ALARME</button>
+  <button id="toggle">ACTIVER</button>
+
+  <label class="auto">
+    <div><b>🤖 Sentinelle auto</b>
+      <small>Power pour éteindre = armement. Déverrouillage avec ton empreinte = pause.</small></div>
+    <span class="sw"><input id="auto" type="checkbox"><span></span></span>
+  </label>
+
+  <div>
+    <div class="row"><span>Sensibilité</span><b id="sensVal">6/10</b></div>
+    <input id="sens" type="range" min="1" max="10" step="1" value="6">
+    <div class="hint">Appliquée à la prochaine activation</div>
+  </div>
+
+  <button id="test">🔊 Tester le son dans le casque</button>
+  <button id="lock" hidden>🔒 Autoriser la mise en veille auto</button>
+  <button id="battery" hidden>🔋 Autoriser en arrière-plan (batterie)</button>
+
+  <div class="hint">Active : l'écran se met en veille tout seul, pose le téléphone, il s'arme en 5 s. En cas d'alerte, « Couper l'alarme » arrête le son et réarme
+  la surveillance en 5 s. « Désactiver » arrête tout (avec la sentinelle auto, ça la met juste en pause). Dans la notification, ces deux boutons
+  demandent le déverrouillage.</div>
+</main>
+
+<script>
+  const G = window.Garde || null;   // pont Android (absent si ouvert dans un navigateur)
+  const $ = id => document.getElementById(id);
+
+  const LOOK = {
+    OFF:    ['⚪ INACTIVE',  "Le téléphone n'est pas surveillé"],
+    ARMING: ['🟡 ARMEMENT…', 'Pose le téléphone, activation dans 5 s'],
+    ACTIVE: ['🟢 ACTIVE',    "Surveillance en cours, tu peux fermer l'appli"],
+    PAUSED: ['🔵 SENTINELLE', "En pause, s'arme dès que tu éteins l'écran"],
+    ALARM:  ['🚨 ALERTE',    'Le téléphone a bougé ! Couper l\'alarme le réarme en 5 s']
+  };
+  let current = 'OFF';
+
+  window.onGardeState = s => {
+    current = LOOK[s] ? s : 'OFF';
+    $('card').className = current;
+    $('state').textContent = LOOK[current][0];
+    $('stateSub').textContent = LOOK[current][1];
+    const on = current !== 'OFF' && current !== 'PAUSED';
+    $('toggle').textContent = on ? 'DÉSACTIVER' : 'ACTIVER';
+    $('toggle').classList.toggle('on', on);
+    $('silence').hidden = current !== 'ALARM';
+  };
+
+  window.gardeRefresh = () => {
+    if (!G) return;
+    onGardeState(G.state());
+    $('battery').hidden = G.batteryOk();
+    $('lock').hidden = G.lockOk();
+    $('auto').checked = G.getAuto();
+  };
+
+  $('toggle').onclick = () => {
+    if (!G) return alert("Ouvre l'appli Android pour activer la surveillance.");
+    (current === 'OFF' || current === 'PAUSED') ? G.start() : G.stop();
+  };
+  $('silence').onclick = () => G && G.silence();
+  $('test').onclick = () => G && G.testSound();
+  $('battery').onclick = () => G && G.askBattery();
+  $('lock').onclick = () => G && G.askLock();
+  $('auto').onchange = e => { if (!G) return; G.setAuto(e.target.checked); };
+
+  const sens = $('sens');
+  sens.oninput = () => { $('sensVal').textContent = sens.value + '/10'; G && G.setSens(+sens.value); };
+  if (G) { sens.value = G.getSens(); $('sensVal').textContent = sens.value + '/10'; }
+
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) gardeRefresh(); });
+  gardeRefresh();
+</script>
+</body>
+</html>
